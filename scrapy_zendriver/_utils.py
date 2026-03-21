@@ -1,9 +1,9 @@
 
 from scrapy.http.headers import Headers
-from typing import Awaitable, Iterator, Optional, Tuple
+from typing import Awaitable, Iterator, Optional, Tuple, Union
 from scrapy.utils.python import to_unicode
 from w3lib.encoding import html_body_declared_encoding, http_content_type_encoding
-import nodriver as uc
+import zendriver as zd
 
 
 async def _maybe_await(obj):
@@ -31,7 +31,7 @@ def _encode_body(headers: Headers, text: str) -> Tuple[bytes, str]:
 
 
 def _get_header_value(
-    resource: uc.cdp.network.Request | uc.cdp.network.Response,
+    resource: Union[zd.cdp.network.Request, zd.cdp.network.Response],
     header_name: str,
 ) -> Optional[str]:
     try:

@@ -1,0 +1,222 @@
+2026-03-21 09:33:30 [scrapy.utils.log] INFO: Scrapy 2.14.2 started (bot: example_project)
+2026-03-21 09:33:30 [scrapy.utils.log] INFO: Versions:
+{'lxml': '6.0.2',
+ 'libxml2': '2.11.9',
+ 'cssselect': '1.4.0',
+ 'parsel': '1.11.0',
+ 'w3lib': '2.4.0',
+ 'Twisted': '25.5.0',
+ 'Python': '3.13.12 | packaged by Anaconda, Inc. | (main, Feb 24 2026, '
+           '16:05:56) [MSC v.1942 64 bit (AMD64)]',
+ 'pyOpenSSL': '25.3.0 (OpenSSL 3.5.5 27 Jan 2026)',
+ 'cryptography': '46.0.5',
+ 'Platform': 'Windows-11-10.0.26100-SP0'}
+2026-03-21 09:33:30 [scrapy.crawler] DEBUG: Using AsyncCrawlerProcess
+2026-03-21 09:33:30 [asyncio] DEBUG: Using selector: SelectSelector
+2026-03-21 09:33:30 [scrapy.addons] INFO: Enabled addons:
+[]
+2026-03-21 09:33:30 [scrapy.utils.log] DEBUG: Using reactor: twisted.internet.asyncioreactor.AsyncioSelectorReactor
+2026-03-21 09:33:30 [scrapy.utils.log] DEBUG: Using asyncio event loop: asyncio.windows_events._WindowsSelectorEventLoop
+2026-03-21 09:33:30 [scrapy.extensions.telnet] INFO: Telnet Password: 2602587c11f80b1c
+2026-03-21 09:33:30 [scrapy.middleware] INFO: Enabled extensions:
+['scrapy.extensions.corestats.CoreStats',
+ 'scrapy.extensions.logcount.LogCount',
+ 'scrapy.extensions.telnet.TelnetConsole',
+ 'scrapy.extensions.feedexport.FeedExporter',
+ 'scrapy.extensions.logstats.LogStats']
+2026-03-21 09:33:30 [scrapy.crawler] INFO: Overridden settings:
+{'BOT_NAME': 'example_project',
+ 'LOG_FILE': 'concurrent.log',
+ 'NEWSPIDER_MODULE': 'example_project.spiders',
+ 'SPIDER_MODULES': ['example_project.spiders']}
+2026-03-21 09:33:30 [scrapy.middleware] INFO: Enabled downloader middlewares:
+['scrapy.downloadermiddlewares.offsite.OffsiteMiddleware',
+ 'scrapy.downloadermiddlewares.httpauth.HttpAuthMiddleware',
+ 'scrapy.downloadermiddlewares.downloadtimeout.DownloadTimeoutMiddleware',
+ 'scrapy.downloadermiddlewares.defaultheaders.DefaultHeadersMiddleware',
+ 'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware',
+ 'scrapy.downloadermiddlewares.retry.RetryMiddleware',
+ 'scrapy.downloadermiddlewares.redirect.MetaRefreshMiddleware',
+ 'scrapy.downloadermiddlewares.httpcompression.HttpCompressionMiddleware',
+ 'scrapy.downloadermiddlewares.redirect.RedirectMiddleware',
+ 'scrapy.downloadermiddlewares.cookies.CookiesMiddleware',
+ 'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware',
+ 'scrapy.downloadermiddlewares.stats.DownloaderStats']
+2026-03-21 09:33:30 [scrapy.middleware] INFO: Enabled spider middlewares:
+['scrapy.spidermiddlewares.start.StartSpiderMiddleware',
+ 'scrapy.spidermiddlewares.httperror.HttpErrorMiddleware',
+ 'scrapy.spidermiddlewares.referer.RefererMiddleware',
+ 'scrapy.spidermiddlewares.urllength.UrlLengthMiddleware',
+ 'scrapy.spidermiddlewares.depth.DepthMiddleware']
+2026-03-21 09:33:30 [scrapy.middleware] INFO: Enabled item pipelines:
+[]
+2026-03-21 09:33:30 [scrapy.core.engine] INFO: Spider opened
+2026-03-21 09:33:30 [py.warnings] WARNING: C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\scrapy\core\spidermw.py:490: ScrapyDeprecationWarning: example_project.spiders.quotes_spider.QuotesConcurrentSpider defines the deprecated start_requests() method. start_requests() has been deprecated in favor of a new method, start(), to support asynchronous code execution. start_requests() will stop being called in a future version of Scrapy. If you use Scrapy 2.13 or higher only, replace start_requests() with start(); note that start() is a coroutine (async def). If you need to maintain compatibility with lower Scrapy versions, when overriding start_requests() in a spider class, override start() as well; you can use super() to reuse the inherited start() implementation without copy-pasting. See the release notes of Scrapy 2.13 for details: https://docs.scrapy.org/en/2.13/news.html
+  warn(
+
+2026-03-21 09:33:30 [scrapy.extensions.logstats] INFO: Crawled 0 pages (at 0 pages/min), scraped 0 items (at 0 items/min)
+2026-03-21 09:33:30 [scrapy.extensions.telnet] INFO: Telnet console listening on 127.0.0.1:6023
+2026-03-21 09:33:30 [scrapy.zendriver] INFO: Starting browser (headless=True)...
+2026-03-21 09:33:31 [scrapy.zendriver] INFO: Browser started successfully
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Browser already running, skipping launch
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 1: https://quotes.toscrape.com/page/1/
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Creating new page for https://quotes.toscrape.com/page/1/ (no idle pages available)
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 2: https://quotes.toscrape.com/page/2/
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Creating new page for https://quotes.toscrape.com/page/2/ (no idle pages available)
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 3: https://quotes.toscrape.com/page/3/
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Creating new page for https://quotes.toscrape.com/page/3/ (no idle pages available)
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 4: https://quotes.toscrape.com/page/4/
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Creating new page for https://quotes.toscrape.com/page/4/ (no idle pages available)
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 5: https://quotes.toscrape.com/page/5/
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Creating new page for https://quotes.toscrape.com/page/5/ (no idle pages available)
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 6: https://quotes.toscrape.com/page/6/
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 7: https://quotes.toscrape.com/page/7/
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 8: https://quotes.toscrape.com/page/8/
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 9: https://quotes.toscrape.com/page/9/
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: Got existing tab from browser
+2026-03-21 09:33:31 [scrapy.zendriver] DEBUG: New page created, page count is 1
+2026-03-21 09:33:31 [quotes_concurrent] INFO: Requesting page 10: https://quotes.toscrape.com/page/10/
+2026-03-21 09:33:32 [scrapy.zendriver] DEBUG: Response: <200 https://quotes.toscrape.com/page/3/>
+2026-03-21 09:33:32 [scrapy.zendriver] DEBUG: Response: <200 https://quotes.toscrape.com/page/3/>
+2026-03-21 09:33:32 [asyncio] ERROR: Task was destroyed but it is pending!
+task: <Task pending name='Task-36' coro=<DownloaderMiddlewareManager.download_async() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\scrapy\core\downloader\middleware.py:71> wait_for=<Future pending cb=[Deferred.asFuture.<locals>.checkCancel() at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\twisted\internet\defer.py:1218, Task.task_wakeup()]> cb=[Deferred.fromFuture.<locals>.adapt() at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\twisted\internet\defer.py:1255]>
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-38' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [asyncio] ERROR: Task was destroyed but it is pending!
+task: <Task pending name='Task-39' coro=<Downloader._wait_for_download() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\scrapy\core\downloader\__init__.py:265> wait_for=<Transaction
+	method: Runtime.evaluate
+	status: pending
+	success: True>>
+2026-03-21 09:33:32 [asyncio] ERROR: Task was destroyed but it is pending!
+task: <Task pending name='Task-42' coro=<DownloaderMiddlewareManager.download_async() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\scrapy\core\downloader\middleware.py:71> wait_for=<Future pending cb=[Deferred.asFuture.<locals>.checkCancel() at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\twisted\internet\defer.py:1218, Task.task_wakeup()]> cb=[Deferred.fromFuture.<locals>.adapt() at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\twisted\internet\defer.py:1255]>
+2026-03-21 09:33:32 [asyncio] ERROR: Task was destroyed but it is pending!
+task: <Task pending name='Task-43' coro=<Downloader._wait_for_download() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\scrapy\core\downloader\__init__.py:265> wait_for=<Transaction
+	method: Runtime.evaluate
+	status: pending
+	success: True>>
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-45' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-49' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-54' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-61' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-62' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [asyncio] ERROR: Task exception was never retrieved
+future: <Task finished name='Task-63' coro=<Listener.listener_loop() done, defined at C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py:733> exception=ConcurrencyError('cannot call recv while another coroutine is already running recv or recv_streaming')>
+Traceback (most recent call last):
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\zendriver\core\connection.py", line 739, in listener_loop
+    msg = await asyncio.wait_for(
+          ^^^^^^^^^^^^^^^^^^^^^^^
+        self.connection.websocket.recv(), self.time_before_considered_idle
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\asyncio\tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\humcasma\miniconda3\envs\job\Lib\site-packages\websockets\asyncio\connection.py", line 310, in recv
+    raise ConcurrencyError(
+    ...<2 lines>...
+    ) from None
+websockets.exceptions.ConcurrencyError: cannot call recv while another coroutine is already running recv or recv_streaming
+2026-03-21 09:33:32 [scrapy.zendriver] DEBUG: Response: <200 https://quotes.toscrape.com/static/bootstrap.min.css>
+2026-03-21 09:33:32 [scrapy.zendriver] DEBUG: Response: <200 https://quotes.toscrape.com/static/bootstrap.min.css>

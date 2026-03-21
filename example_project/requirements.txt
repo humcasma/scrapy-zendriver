@@ -1,0 +1,6 @@
+# Example project requirements
+# Install the scrapy-zendriver package and its dependencies
+
+scrapy>=2.0,!=2.4.0
+zendriver>=0.15
+scrapy-zendriver>=1.0.0

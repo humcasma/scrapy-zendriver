@@ -1,21 +1,17 @@
 [tool.poetry]
-name = "scrapy-nodriver"
-version = "0.0.7"
-description = "Nodriver integration for Scrapy"
-authors = ["Ehsan U. <lancerf562@gmail.com>"]
+name = "scrapy-zendriver"
+version = "1.0.0"
+description = "Zendriver integration for Scrapy"
+authors = ["Humcasma"]
 license = "BSD"
 readme = "README.md"
-homepage = "https://github.com/Ehsan-U/scrapy-nodriver"
-packages = [{include = "scrapy_nodriver"}]
+homepage = "https://github.com/humcasma/scrapy-zendriver"
+packages = [{include = "scrapy_zendriver"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Framework :: Scrapy",
     "Intended Audience :: Developers",
     "Topic :: Internet :: WWW/HTTP",
@@ -24,9 +20,9 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
+python = ">=3.13"
 scrapy = ">=2.0,!=2.4.0"
-nodriver-extras = "0.34"
+zendriver = ">=0.15"
 
 
 [build-system]
