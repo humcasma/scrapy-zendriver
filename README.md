@@ -4,11 +4,8 @@
 [![pyversions](https://img.shields.io/pypi/pyversions/scrapy-zendriver.svg)](https://pypi.python.org/pypi/scrapy-zendriver)
 
 A [Scrapy](https://github.com/scrapy/scrapy) Download Handler which performs requests using
-[Zendriver](https://github.com/cdpdriver/zendriver). It can be used to handle pages that require JavaScript (among other things),
+[Zendriver](https://github.com/cdpdriver/zendriver) (based on a fork of [scrapy-nodriver](https://github.com/Ehsan-U/scrapy-nodriver), modified and improved to use [zendriver](https://github.com/cdpdriver/zendriver)). It can be used to handle pages that require JavaScript (among other things),
 while adhering to the regular Scrapy workflow (i.e. without interfering with request scheduling, item processing, etc).
-
-**What makes this package different** from similar projects like [Scrapy-Playwright](https://github.com/scrapy-plugins/scrapy-playwright) is the optimization to stay undetected by most anti-bot solutions.
-[CDP](https://chromedevtools.github.io/devtools-protocol/) communication provides even better resistance against web application firewalls (WAFs), while performance gets a massive boost.
 
 ---
 
@@ -22,9 +19,10 @@ while adhering to the regular Scrapy workflow (i.e. without interfering with req
 - [Advanced Usage](#advanced-usage)
   - [Executing actions on pages](#executing-actions-on-pages)
   - [Using CallablePageMethod for custom interactions](#using-callablepagemethod-for-custom-interactions)
-  - [Reusing pages across requests](#reusing-pages-across-requests)
+  - [Page lifecycle management](#page-lifecycle-management)
   - [Receiving Page objects in callbacks](#receiving-page-objects-in-callbacks)
 - [Configuration](#configuration)
+- [Automatic Features](#automatic-features)
 - [Example Project](#example-project)
 - [Known Issues](#known-issues)
 
@@ -35,9 +33,11 @@ while adhering to the regular Scrapy workflow (i.e. without interfering with req
 - **JavaScript rendering** - Execute JavaScript and extract dynamically loaded content
 - **Browser automation** - Click buttons, fill forms, scroll pages, take screenshots
 - **Anti-bot evasion** - Uses CDP protocol for better stealth against bot detection
+- **Cloudflare bypass** - Automatically detects and solves Cloudflare Turnstile challenges
 - **Scrapy-native** - Integrates seamlessly with Scrapy's request/response workflow
 - **Concurrent pages** - Manage multiple browser tabs with configurable limits
 - **Resource blocking** - Block images, fonts, and other unnecessary resources for faster scraping
+- **Cookie persistence** - Browser cookies are automatically shared across all requests
 
 ---
 
@@ -56,10 +56,17 @@ integrating `asyncio`-based projects such as `Zendriver`.
 
 ## Installation
 
-`scrapy-zendriver` is available on PyPI and can be installed with `pip`:
+`scrapy-zendriver` is not yet available on PyPI. Install it directly from the source:
 
 ```bash
-pip install scrapy-zendriver
+# Clone or navigate to the scrapy-zendriver directory
+cd /path/to/scrapy-zendriver
+
+# Install in editable mode (recommended for development)
+pip install -e .
+
+# Or install directly from a local path
+pip install /path/to/scrapy-zendriver
 ```
 
 `zendriver` is defined as a dependency and will be installed automatically.
@@ -85,15 +92,12 @@ DOWNLOAD_HANDLERS = {
 
 ### Twisted reactor
 
-[Install the `asyncio`-based Twisted reactor](https://docs.scrapy.org/en/latest/topics/asyncio.html#installing-the-asyncio-reactor):
+[The `asyncio`-based Twisted reactor](https://docs.scrapy.org/en/latest/topics/asyncio.html#installing-the-asyncio-reactor) is the default one in new projects since [Scrapy 2.7](https://github.com/scrapy/scrapy/releases/tag/2.7.0). For earlier versions you need to select it manually:
 
 ```python
 # settings.py
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 ```
-
-This is the default in new projects since [Scrapy 2.7](https://github.com/scrapy/scrapy/releases/tag/2.7.0).
-
 ---
 
 ## Basic Usage
@@ -151,6 +155,8 @@ class ScrollSpider(scrapy.Spider):
         return {"quote_count": len(response.css("div.quote"))}
 ```
 
+> **Important:** You do NOT need `zendriver_include_page=True` to execute page methods. Page methods are applied automatically before the response is returned to your callback.
+
 ### Using CallablePageMethod for custom interactions
 
 For complex interactions (like filling forms), use `CallablePageMethod` to pass custom async functions:
@@ -190,7 +196,6 @@ class LoginSpider(scrapy.Spider):
             callback=self.parse_after_login,
             meta={
                 "zendriver": True,
-                "zendriver_include_page": True,
                 "zendriver_page_methods": [
                     # Execute custom login function
                     CallablePageMethod(self.do_login),
@@ -203,42 +208,84 @@ class LoginSpider(scrapy.Spider):
         return {"url": response.url}
 ```
 
-### Reusing pages across requests
+### Page lifecycle management
 
-Use `zendriver_include_page=True` to keep pages open and reuse them:
+Understanding page lifecycle is crucial for efficient scraping:
+
+#### Default behavior (recommended)
+
+By default, pages are **automatically managed**:
 
 ```python
-class ChainSpider(scrapy.Spider):
-    name = "chain"
-
-    def start_requests(self):
-        yield scrapy.Request(
-            url="https://example.org/page1",
-            callback=self.parse_page1,
-            meta={"zendriver": True, "zendriver_include_page": True},
-        )
-
-    def parse_page1(self, response):
-        page = response.meta["zendriver_page"]
-        # Reuse same page for next request
-        yield scrapy.Request(
-            url="https://example.org/page2",
-            callback=self.parse_page2,
-            meta={"zendriver": True, "zendriver_include_page": True, "zendriver_page": page},
-        )
-
-    async def parse_page2(self, response):
-        page = response.meta["zendriver_page"]
-        title = await page.title()
-        await page.close()  # Remember to close!
-        return {"title": title}
+yield scrapy.Request(
+    url="https://example.org",
+    meta={"zendriver": True},  # That's all you need!
+    callback=self.parse,
+)
 ```
 
-> **Important:** When using `zendriver_include_page=True`, always close pages when done to avoid memory leaks and hitting `ZENDRIVER_MAX_CONCURRENT_PAGES` limits.
+**What happens:**
+1. A page is created (or reused from idle pool)
+2. Your request is processed
+3. Page methods are executed (if any)
+4. Page is returned to idle pool for reuse
+5. Page is automatically closed when spider closes
+
+#### `zendriver_include_page` - Advanced control
+
+Use `zendriver_include_page=True` ONLY if you need direct access to the Page object in your callback:
+
+```python
+yield scrapy.Request(
+    url="https://example.org",
+    meta={
+        "zendriver": True,
+        "zendriver_include_page": True,  # Keep page open
+    },
+    callback=self.parse,
+)
+
+async def parse(self, response, **kwargs):
+    page = response.meta["zendriver_page"]  # Access the Page object
+    
+    # Do something with the page
+    title = await page.title()
+    await page.save_screenshot("example.png")
+    
+    # ⚠️ YOU MUST CLOSE THE PAGE YOURSELF ⚠️
+    await page.close()
+    
+    return {"title": title}
+```
+
+**Important notes:**
+
+| Aspect | Default (`zendriver_include_page=False`) | With `zendriver_include_page=True` |
+|--------|------------------------------------------|-------------------------------------|
+| Page access in callback | ❌ Not available | ✅ Available via `response.meta["zendriver_page"]` |
+| Page reuse | ✅ Returned to idle pool | ❌ NOT returned to pool |
+| Page closing | ✅ Automatic | ⚠️ **Manual (your responsibility)** |
+| Use case | Standard scraping | Advanced browser control |
+
+> **⚠️ Warning:** If you use `zendriver_include_page=True` and forget to close the page:
+> - The page will NOT be reused by other requests
+> - The page will NOT be automatically closed
+> - You may hit `ZENDRIVER_MAX_CONCURRENT_PAGES` limits
+> - Memory leaks can occur
+
+**When to use `zendriver_include_page=True`:**
+- You need to call Page methods directly in your callback
+- You need to reuse the exact same page across multiple requests
+- You need fine-grained control over page lifecycle
+
+**When NOT to use it:**
+- Standard scraping (use `zendriver_page_methods` instead)
+- You just want to scroll, click, or wait for elements
+- You're unsure (default is safer)
 
 ### Receiving Page objects in callbacks
 
-Access the Zendriver `Tab` object directly in your callback:
+If you need the Page object in your callback (see above section):
 
 ```python
 from zendriver import Tab
@@ -261,7 +308,7 @@ class ScreenshotSpider(scrapy.Spider):
         # Get page title
         title = await page.title()
         
-        # Close page
+        # Close page (REQUIRED!)
         await page.close()
         
         return {"title": title, "screenshot": "example.png"}
@@ -307,6 +354,72 @@ ZENDRIVER_BLOCKED_URLS = [
 ]
 ```
 
+### `DOWNLOAD_TIMEOUT`
+Type: `float`, Default: `180.0`
+
+Maximum time in seconds to wait for page navigation.
+
+```python
+DOWNLOAD_TIMEOUT = 60.0  # 1 minute timeout
+```
+
+---
+
+## Automatic Features
+
+### Cookie persistence
+
+All cookies are **automatically shared** across requests because they're tied to the browser instance, not individual pages:
+
+```python
+class CookieSpider(scrapy.Spider):
+    name = "cookie"
+    start_urls = ["https://example.com/login"]
+
+    def parse(self, response):
+        # After login, cookies persist automatically
+        yield scrapy.Request(
+            url="https://example.com/protected",
+            callback=self.parse_protected,
+            meta={"zendriver": True},
+        )  # No need to manually handle cookies!
+```
+
+**Key points:**
+- Cookies are stored at the **browser level**
+- All requests share the same browser session
+- Login state persists across all subsequent requests
+- No need to manually extract/transfer cookies
+
+### Cloudflare protection
+
+Cloudflare challenges are **automatically detected and bypassed**:
+
+```python
+class CloudflareSpider(scrapy.Spider):
+    name = "cloudflare"
+    start_urls = ["https://example-protected-by-cloudflare.com"]
+
+    def parse(self, response):
+        # If Cloudflare challenge is detected, it's automatically solved
+        return {"title": response.css("title::text").get()}
+```
+
+**How it works:**
+1. Response is checked for Cloudflare indicators (status 403/503, challenge DOM)
+2. If challenge detected, the Turnstile checkbox is automatically clicked
+3. Waits for page redirect after bypass
+4. Returns the actual page content
+
+**Logging:**
+```
+[scrapy.zendriver] DEBUG: Cloudflare indicators found on https://example.com, verifying DOM...
+[scrapy.zendriver] INFO: Cloudflare challenge detected! Attempting bypass...
+[scrapy.zendriver] INFO: Cloudflare checkbox bypassed! Waiting for page redirect...
+```
+
+**Note:** Cloudflare bypass adds minimal overhead - normal pages (without challenges) are processed instantly with zero delay.
+
 ---
 
 ## Supported `Request.meta` keys
@@ -314,7 +427,7 @@ ZENDRIVER_BLOCKED_URLS = [
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `zendriver` | `bool` | `False` | Enable Zendriver for this request |
-| `zendriver_include_page` | `bool` | `False` | Keep page open and pass to callback |
+| `zendriver_include_page` | `bool` | `False` | Keep page open and pass to callback (requires manual close) |
 | `zendriver_page_methods` | `Iterable[PageMethod]` | `()` | Actions to execute on the page |
 | `zendriver_page` | `Optional[Tab]` | `None` | Specific page to use for request |
 
@@ -348,10 +461,16 @@ A complete example project is included in the `example_project/` directory demon
 - Login automation with `CallablePageMethod`
 - Filtering by tag
 - Page methods for scrolling and interaction
+- Concurrent vs sequential processing
 
 ```bash
+# Navigate to the example project
 cd example_project
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Install scrapy-zendriver (from parent directory)
 pip install -e ..
 
 # Run basic spider
@@ -362,6 +481,9 @@ scrapy crawl quotes_zendriver -s ZENDRIVER_HEADLESS=False -o quotes.json
 
 # Run login + filter spider
 scrapy crawl quotes_login_filter -o books_quotes.json
+
+# Run advanced spider with CallablePageMethod
+scrapy crawl quotes_zendriver_advanced -o advanced.json
 ```
 
 ---
@@ -372,7 +494,7 @@ scrapy crawl quotes_login_filter -o books_quotes.json
 Specifying a proxy via the `proxy` Request meta key is not supported.
 
 ### Page lifecycle management
-When using `zendriver_include_page=True`, you are responsible for closing pages to avoid memory leaks.
+When using `zendriver_include_page=True`, you are responsible for closing pages to avoid memory leaks and hitting `ZENDRIVER_MAX_CONCURRENT_PAGES` limits.
 
 ---
 

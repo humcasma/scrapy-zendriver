@@ -94,7 +94,7 @@ class QuotesZendriverAdvancedSpider(scrapy.Spider):
                 callback=self.parse_quotes,
                 meta={
                     "zendriver": True,
-                    "zendriver_include_page": True,
+                    "zendriver_include_page": False,
                     "zendriver_page_methods": [
                         # Execute JavaScript to get page title
                         PageMethod("evaluate", "document.title"),
@@ -167,7 +167,7 @@ class QuotesZendriverAdvancedSpider(scrapy.Spider):
                 callback=self.parse_quotes,
                 meta={
                     "zendriver": True,
-                    "zendriver_include_page": True,
+                    "zendriver_include_page": False,
                     "zendriver_page_methods": [
                         # Scroll to bottom before extracting
                         PageMethod("evaluate", "window.scrollTo(0, document.body.scrollHeight)"),
@@ -254,7 +254,7 @@ class QuotesConcurrentSpider(scrapy.Spider):
     page reuse is more stable and efficient.
     """
 
-    name = "quotes_concurrent"
+    name = "quotes_zendriver_concurrent"
     allowed_domains = ["quotes.toscrape.com"]
     
     # Generate all page URLs upfront

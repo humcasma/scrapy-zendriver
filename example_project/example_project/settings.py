@@ -21,6 +21,7 @@ DOWNLOAD_HANDLERS = {
 
 # Zendriver-specific settings
 ZENDRIVER_HEADLESS = False  # Set to False to see the browser
+CONCURRENT_REQUESTS = 10
 ZENDRIVER_MAX_CONCURRENT_PAGES = 5  # Limit concurrent browser pages
 # Block image/fonts to speed up scraping (CSS kept for proper page rendering)
 ZENDRIVER_BLOCKED_URLS = [

@@ -2,25 +2,26 @@ import asyncio
 import fnmatch
 import logging
 import time
-from functools import partial
-from typing import Type, TypeVar, List, Dict, Optional
-from scrapy.core.downloader.handlers.http11 import HTTP11DownloadHandler
+from typing import Type, TypeVar, List, Optional
 from dataclasses import dataclass
+
+from scrapy.core.downloader.handlers.http11 import HTTP11DownloadHandler
 from scrapy.settings import Settings
 from scrapy.crawler import Crawler
 from scrapy.utils.reactor import verify_installed_reactor
 from scrapy import signals, Spider
-import zendriver as zd
 from scrapy.http import Request, Response
-from zendriver import Tab, Browser
 from scrapy.responsetypes import responsetypes
+
+import zendriver as zd
+from zendriver import Tab, Browser
+from zendriver.core.cloudflare import cf_is_interactive_challenge_present, verify_cf
 
 from scrapy_zendriver._utils import (
     _encode_body,
     _get_header_value,
     _maybe_await,
 )
-
 
 logging.getLogger("websockets.client").setLevel(logging.ERROR)
 logging.getLogger("zd").setLevel(logging.ERROR)
@@ -32,28 +33,24 @@ __all__ = ['ScrapyZendriverDownloadHandler']
 
 ZendriverHandler = TypeVar("ZendriverHandler", bound="ScrapyZendriverDownloadHandler")
 
-# Module-level shared browser instance and lock
-_browser: Optional[Browser] = None
-_browser_lock: Optional[asyncio.Lock] = None
-
-
-
 @dataclass
 class Config:
     max_concurrent_pages: int
     headless: bool
-    blocked_urls: List
-
+    blocked_urls: List[str]
+    download_timeout: float
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "Config":
-        cfg = cls(
-            max_concurrent_pages=settings.getint("CONCURRENT_REQUESTS") if not settings.getint("ZENDRIVER_MAX_CONCURRENT_PAGES") else settings.getint("ZENDRIVER_MAX_CONCURRENT_PAGES"),
+        return cls(
+            max_concurrent_pages=settings.getint(
+                "ZENDRIVER_MAX_CONCURRENT_PAGES", 
+                settings.getint("CONCURRENT_REQUESTS", 16)
+            ),
             headless=settings.getbool("ZENDRIVER_HEADLESS", default=True),
-            blocked_urls=settings.getlist("ZENDRIVER_BLOCKED_URLS"),
+            blocked_urls=settings.getlist("ZENDRIVER_BLOCKED_URLS", []),
+            download_timeout=settings.getfloat("DOWNLOAD_TIMEOUT", 180.0)
         )
-        return cfg
-
 
 
 class ScrapyZendriverDownloadHandler(HTTP11DownloadHandler):
@@ -61,264 +58,265 @@ class ScrapyZendriverDownloadHandler(HTTP11DownloadHandler):
         super().__init__(crawler)
         verify_installed_reactor("twisted.internet.asyncioreactor.AsyncioSelectorReactor")
         crawler.signals.connect(self._engine_started, signals.engine_started)
+        
         self.stats = crawler.stats
         self.config = Config.from_settings(crawler.settings)
-        self.semaphore = asyncio.Semaphore(self.config.max_concurrent_pages)
-        self._page_callbacks: Dict[str, callable] = {}
-        self._idle_pages: List[Tab] = []  # Pool of idle pages for reuse
         
-        # Initialize module-level lock if not already done
-        global _browser_lock
-        if _browser_lock is None:
-            _browser_lock = asyncio.Lock()
-
+        # If the HTTP handler already created the state, the HTTPS handler will just reuse it.
+        if not hasattr(crawler, 'zendriver_shared_state'):
+            crawler.zendriver_shared_state = {
+                'browser': None,
+                'browser_lock': asyncio.Lock(),
+                'page_creation_lock': asyncio.Lock(),
+                'semaphore': asyncio.Semaphore(self.config.max_concurrent_pages),
+                'idle_pages': [],
+                'active_pages_count': 0,
+                'total_pages_created': 0,
+                'default_tab_claimed': False,
+            }
+        
+        # Create a convenient reference to the shared dictionary
+        self._shared = crawler.zendriver_shared_state
 
     @classmethod
     def from_crawler(cls: Type[ZendriverHandler], crawler: Crawler) -> ZendriverHandler:
         return cls(crawler)
 
-
     async def _engine_started(self) -> None:
-        """Launch the browser."""
         await self._launch()
 
-
-    def _get_total_page_count(self):
-        return len(self._page_callbacks)
-
-
     def _set_max_concurrent_page_count(self):
-        count = self._get_total_page_count()
-        current_max_count = self.stats.get_value("zendriver/page_count/max_concurrent")
-        if current_max_count is None or count > current_max_count:
-            self.stats.set_value("zendriver/page_count/max_concurrent", count)
-
+        current_max_count = self.stats.get_value("zendriver/page_count/max_concurrent", 0)
+        if self._shared['active_pages_count'] > current_max_count:
+            self.stats.set_value("zendriver/page_count/max_concurrent", self._shared['active_pages_count'])
 
     async def _launch(self) -> None:
-        """Start the browser instance (module-level singleton)."""
-        global _browser, _browser_lock
-        
-        async with _browser_lock:
-            if _browser:
-                logger.debug("Browser already running, skipping launch")
+        async with self._shared['browser_lock']:
+            if self._shared['browser']:
                 return
             
             logger.info("Starting browser (headless=%s)...", self.config.headless)
-            _browser = await zd.start(headless=self.config.headless)
+            self._shared['browser'] = await zd.start(headless=self.config.headless)
             logger.info("Browser started successfully")
 
-            # Add handler for target destruction to track page closures
-            _browser.connection.add_handler(
-                zd.cdp.target.TargetDestroyed,
-                self._handle_target_destroyed
-            )
-
-
-    def _handle_target_destroyed(self, event: zd.cdp.target.TargetDestroyed) -> None:
-        """Handle page/tab closure events."""
-        target_id = event.target_id
-        if target_id in self._page_callbacks:
-            callback = self._page_callbacks.pop(target_id)
-            if callback:
-                callback()
-
-
     async def _get_new_page(self) -> Tab:
-        """Create a new page/tab, with fallback for race conditions."""
-        global _browser
-        try:
-            page = await _browser.get()
-            logger.debug("Got existing tab from browser")
-        except StopIteration:
-            # No tabs available, create a new one
-            logger.debug("No existing tabs, creating new tab")
-            page = await _browser.get(new_tab=True)
-        return page
+        # Use a lock to prevent concurrent spiders from spamming the browser's target creator
+        async with self._shared['page_creation_lock']:
+            if not self._shared['default_tab_claimed']:
+                try:
+                    page = await self._shared['browser'].get()
+                    self._shared['default_tab_claimed'] = True 
+                except Exception:
+                    # If getting the default tab fails, try creating a new one
+                    page = await self._shared['browser'].get(new_tab=True)
+                    # If we successfully created a new tab, we effectively bypassed 
+                    # the default tab, so mark it claimed to avoid retrying get() forever.
+                    self._shared['default_tab_claimed'] = True
+            else:
+                page = await self._shared['browser'].get(new_tab=True)
+                
+            # Init empty context block for handlers
+            page._scrapy_context = None
 
+            # Create closures so handlers always reference the specific tab's dynamic context
+            def create_req_handler(tab):
+                def handler(event, *args):
+                    self._increment_request_stats(event)
+                    ctx = getattr(tab, '_scrapy_context', None)
+                    if ctx:
+                        if getattr(event, 'request', None):
+                            if event.request.url.strip("/") == ctx['url']:
+                                ctx['req_state']['headers'] = dict(event.request.headers)
+                        self._log_request(event, ctx['spider'])
+                return handler
+
+            def create_res_handler(tab):
+                def handler(event, *args):
+                    self._increment_response_stats(event)
+                    ctx = getattr(tab, '_scrapy_context', None)
+                    if ctx:
+                        if getattr(event, 'response', None):
+                            if event.response.url.strip("/") == ctx['url']:
+                                ctx['req_state']['status'] = event.response.status
+                        self._log_response(event, ctx['spider'])
+                return handler
+
+            # Attach GLOBAL stats handlers exactly ONCE
+            page.add_handler(zd.cdp.network.RequestWillBeSent, create_req_handler(page))
+            page.add_handler(zd.cdp.network.ResponseReceived, create_res_handler(page))
+            page.add_handler(zd.cdp.network.LoadingFailed, self._log_blocked_request)
+            
+            self._shared['total_pages_created'] += 1
+            self.stats.inc_value("zendriver/page_count")
+            
+            return page
+                
+    def _is_page_closed(self, page: Tab) -> bool:
+        """Defensively check if a CDP tab is closed or disconnected."""
+        if not page:
+            return True
+        try:
+            if hasattr(page, 'closed'):
+                val = getattr(page, 'closed')
+                return val() if callable(val) else bool(val)
+            if hasattr(page, 'is_closed'):
+                val = getattr(page, 'is_closed')
+                return val() if callable(val) else bool(val)
+            return False
+        except Exception:
+            return True
 
     async def _create_page(self, request: Request, spider: Spider) -> Tab:
-        await self.semaphore.acquire()
-
-        if not _browser:
+        if not self._shared['browser']:
             raise RuntimeError("Browser not initialized. Call _launch first.")
 
-        # First, try to get an idle page from the pool
-        if self._idle_pages:
-            page = self._idle_pages.pop()
-            if not page.closed:
-                logger.debug("Reusing idle page for %s (target_id=%s)", request.url, page.target_id)
-                target_id = page.target_id
-                # Re-register the callback for this reused page
-                self._page_callbacks[target_id] = partial(self._close_page_callback, target_id)
+        # Try to reuse idle page, discarding dead ones
+        while self._shared['idle_pages']:
+            page = self._shared['idle_pages'].pop()
+            if not self._is_page_closed(page):
+                logger.debug("Reusing idle page for %s", request.url)
+                return page
             else:
-                # Page was closed, create a new one
-                logger.debug("Idle page was closed, creating new page for %s", request.url)
-                page = await self._get_new_page()
-                target_id = page.target_id
-                self._page_callbacks[target_id] = partial(self._close_page_callback, target_id)
-        else:
-            logger.debug("Creating new page for %s (no idle pages available)", request.url)
-            page = await self._get_new_page()
-            target_id = page.target_id
-            self._page_callbacks[target_id] = partial(self._close_page_callback, target_id)
+                logger.debug("Discarded a closed/disconnected page from the pool.")
 
-        self.stats.inc_value("zendriver/page_count")
-        logger.debug(
-            "New page created, page count is %i",
-            self._get_total_page_count(),
-            extra={
-                "spider": spider,
-                "total_page_count": self._get_total_page_count(),
-                "scrapy_request_url": request.url,
-                "scrapy_request_method": request.method,
-            },
-        )
-        self._set_max_concurrent_page_count()
-
-        # Wrap handlers to ignore extra arguments from zendriver
-        page.add_handler(zd.cdp.network.RequestWillBeSent, lambda e, *args: self._increment_request_stats(e))
-        page.add_handler(zd.cdp.network.ResponseReceived, lambda e, *args: self._increment_response_stats(e))
-        page.add_handler(zd.cdp.network.RequestWillBeSent, lambda e, *args: self._log_request(e, spider=spider))
-        page.add_handler(zd.cdp.network.ResponseReceived, lambda e, *args: self._log_response(e, spider=spider, request=request))
-        page.add_handler(zd.cdp.network.LoadingFailed, lambda e, *args: self._log_blocked_request(e))
-
+        logger.debug("Creating new page for %s", request.url)
+        page = await self._get_new_page()
+        logger.debug("New page created, total pages is %i", self._shared['total_pages_created'])
         return page
-
 
     async def close(self):
         logger.info("Closing download handler")
         await super().close()
-        await self._close()
-
-
-    async def _close(self) -> None:
-        """Close the browser instance."""
-        # Close all idle pages
-        for page in self._idle_pages:
+        
+        for page in self._shared['idle_pages']:
             try:
                 if not page.closed:
                     await page.close()
-            except:
+            except Exception:
                 pass
-        self._idle_pages.clear()
+        self._shared['idle_pages'].clear()
 
-        # Close the shared browser instance (only once)
-        global _browser, _browser_lock
-        async with _browser_lock:
-            if _browser:
+        async with self._shared['browser_lock']:
+            if self._shared['browser']:
                 logger.info("Stopping browser")
-                await _browser.stop()
-                _browser = None
-
+                await self._shared['browser'].stop()
+                self._shared['browser'] = None
 
     async def download_request(self, request: Request, **kwargs):
         if request.meta.get("zendriver"):
-            self.resp_status = 200
             return await self._download_request(request, kwargs.get('spider'))
         return await super().download_request(request, **kwargs)
 
-
     async def _download_request(self, request: Request, spider: Spider) -> Response:
-        page: Tab = request.meta.get("zendriver_page")
-        page_created = False
-        if not isinstance(page, Tab) or page.closed:
-            page = await self._create_page(request=request, spider=spider)
-            page_created = True
-
+        await self._shared['semaphore'].acquire()
+        self._shared['active_pages_count'] += 1
+        self._set_max_concurrent_page_count()
+        
+        page = None
         try:
-            return await self._download_request_with_page(request, page, spider, page_created)
+            page = request.meta.get("zendriver_page")
+            if not isinstance(page, Tab) or self._is_page_closed(page):
+                page = await self._create_page(request, spider)
+                
+            return await self._download_request_with_page(request, page, spider)
+            
         except Exception as ex:
-            if not request.meta.get("zendriver_include_page") and not page.closed:
-                logger.warning(
-                    "Error in request: %s exc_type=%s exc_msg=%s",
-                    request,
-                    type(ex),
-                    str(ex),
-                    extra={
-                        "spider": spider,
-                        "scrapy_request_url": request.url,
-                        "scrapy_request_method": request.method,
-                        "exception": ex,
-                    },
-                    exc_info=True,
-                )
-                # Return page to idle pool for reuse and release semaphore
-                target_id = page.target_id
-                if target_id in self._page_callbacks:
-                    del self._page_callbacks[target_id]
-                self._idle_pages.append(page)
-                if page_created:
-                    self.semaphore.release()
+            logger.warning("Error in request: %s exc_msg=%s", request, str(ex), exc_info=True)
             raise
+            
+        finally:
+            # Safely handle returning the tab to the pool whether the request succeeded or crashed
+            if page and not self._is_page_closed(page):
+                if not request.meta.get("zendriver_include_page"):
+                    self._shared['idle_pages'].append(page)
+                    logger.info("RETURNED: Tab returned to pool. Pool size is %d", len(self._shared['idle_pages']))
+                else:
+                    logger.info("KEPT: Tab kept by Spider (zendriver_include_page=True).")
+            elif page:
+                logger.warning("DISCARDED: Tab crashed or was closed during request.")
+            
+            self._shared['active_pages_count'] -= 1
 
+            self._shared['semaphore'].release()
 
-    async def _download_request_with_page(self, request: Request, page: Tab, spider: Spider, page_created: bool = False) -> Response:
+    async def _download_request_with_page(self, request: Request, page: Tab, spider: Spider) -> Response:
         if request.meta.get("zendriver_include_page"):
             request.meta["zendriver_page"] = page
 
         start_time = time.time()
-        headers = {}
-        def capture_headers(event, *args):
-            nonlocal headers
-            # Skip if not a RequestWillBeSent event
-            if not hasattr(event, 'request'):
-                return
-            if event.request.url.strip("/") == request.url.strip("/"):
-                headers = dict(event.request.headers)
-        page.add_handler(zd.cdp.network.RequestWillBeSent, capture_headers)
+        
+        req_state = {
+            "headers": {},
+            "status": 200
+        }
 
-        if self.config.blocked_urls:
-            await page.send(zd.cdp.network.enable())
-            await page.send(zd.cdp.network.set_blocked_ur_ls(self.config.blocked_urls))
+        # Dynamically bind context so background event listeners can update req_state
+        page._scrapy_context = {
+            'url': request.url.strip("/"),
+            'spider': spider,
+            'request': request,
+            'req_state': req_state,
+        }
 
         try:
-            await page.get(request.url)
-        except Exception as ex:
-            logger.debug(
-                "Navigating to %s failed",
-                request.url,
-                extra={
-                    "spider": spider,
-                    "scrapy_request_url": request.url,
-                    "scrapy_request_method": request.method,
-                },
-            )
-        try:
-            await self._apply_page_methods(page, request, spider)
-        except Exception as ex:
-            await page.aopen()  # temporary patch for websocket closed issue when page_method failed
-            raise
-        body_str = await page.get_content()
+            if self.config.blocked_urls:
+                await page.send(zd.cdp.network.enable())
+                await page.send(zd.cdp.network.set_blocked_ur_ls(self.config.blocked_urls))
+
+            await asyncio.wait_for(page.get(request.url), timeout=self.config.download_timeout)
+            
+            body_str = await page.get_content()
+            
+            # Cloudflare heuristic check
+            # Only run the heavy DOM verification if we see CF indicators.
+            # This ensures normal pages are bypassed instantly with 0 delay.
+            is_cf_suspect = req_state["status"] in (403, 503) or "challenges.cloudflare.com" in body_str
+            
+            if is_cf_suspect:
+                logger.debug("Cloudflare indicators found on %s, verifying DOM...", request.url)
+                
+                # Check if the interactive iframe is actually present
+                if await cf_is_interactive_challenge_present(page, timeout=3.0):
+                    logger.info("Cloudflare challenge detected! Attempting bypass...")
+                    try:
+                        # Attempt to click and solve the Turnstile checkbox
+                        await verify_cf(page, timeout=20.0)
+                        logger.info("Cloudflare checkbox bypassed! Waiting for page redirect...")
+                        
+                        # Wait for the JS redirect to trigger and the real page to settle
+                        try:
+                            await page.wait_for_ready_state(10)
+                        except asyncio.TimeoutError:
+                            logger.debug("Network idle timeout reached after CF bypass.")
+                            
+                        # Update the body content with the now-bypassed real page
+                        body_str = await page.get_content()
+                    except Exception as e:
+                        logger.warning("Cloudflare bypass failed or timed out: %s", str(e))
+
+            # Apply user-defined page methods (e.g., clicks, scrolls)
+            if request.meta.get("zendriver_page_methods"):
+                await self._apply_page_methods(page, request, spider)
+                # If user methods were executed, the DOM might have changed, so we grab it again
+                body_str = await page.get_content()
+                
+        finally:
+            page._scrapy_context = None
+
         request.meta["download_latency"] = time.time() - start_time
 
-        # Handle page lifecycle after request completion
-        target_id = page.target_id
-        if request.meta.get("zendriver_include_page"):
-            # Keep page for reuse, but release semaphore
-            # Page stays in _page_callbacks for tracking
-            self.semaphore.release()
-            logger.debug("Page %s kept for reuse (zendriver_include_page=True)", target_id)
-        else:
-            # Return page to idle pool for reuse and release semaphore
-            if target_id in self._page_callbacks:
-                del self._page_callbacks[target_id]
-            self._idle_pages.append(page)
-            self.semaphore.release()
-            logger.debug("Returned page %s to idle pool (pool size: %d)", target_id, len(self._idle_pages))
-
-        body, encoding = _encode_body(headers=headers, text=body_str)
-        respcls = responsetypes.from_args(headers=headers, url=request.url, body=body)
+        body, encoding = _encode_body(headers=req_state["headers"], text=body_str)
+        respcls = responsetypes.from_args(headers=req_state["headers"], url=request.url, body=body)
+        
         return respcls(
-            url=request.url,
-            status=self.resp_status,
-            headers=headers,
-            body=body,
-            request=request,
-            flags=["zendriver"],
-            encoding=encoding,
-            ip_address=None,
+            url=request.url, 
+            status=req_state["status"], 
+            headers=req_state["headers"],
+            body=body, 
+            request=request, 
+            flags=["zendriver"], 
+            encoding=encoding
         )
-
 
     async def _apply_page_methods(self, page: Tab, request: Request, spider: Spider) -> None:
         page_methods = request.meta.get("zendriver_page_methods") or ()
@@ -361,97 +359,57 @@ class ScrapyZendriverDownloadHandler(HTTP11DownloadHandler):
                 pm.result = await _maybe_await(method(*pm.args, **pm.kwargs))
                 await page.wait()
 
+    def _increment_request_stats(self, event, *args) -> None:
+        if getattr(event, 'type_', None):
+            stats_prefix = "zendriver/request_count"
+            self.stats.inc_value(stats_prefix)
+            self.stats.inc_value(f"{stats_prefix}/resource_type/{event.type_.value}")
 
-    def _increment_request_stats(self, event) -> None:
-        """Increment request stats."""
-        if not hasattr(event, 'type_'):
-            return
-        stats_prefix = "zendriver/request_count"
-        self.stats.inc_value(stats_prefix)
-        self.stats.inc_value(f"{stats_prefix}/resource_type/{event.type_.value}")
-
-
-    def _increment_response_stats(self, event) -> None:
-        """Increment response stats."""
-        if not hasattr(event, 'type_'):
-            return
-        stats_prefix = "zendriver/response_count"
-        self.stats.inc_value(stats_prefix)
-        self.stats.inc_value(f"{stats_prefix}/resource_type/{event.type_.value}")
-
+    def _increment_response_stats(self, event, *args) -> None:
+        if getattr(event, 'type_', None):
+            stats_prefix = "zendriver/response_count"
+            self.stats.inc_value(stats_prefix)
+            self.stats.inc_value(f"{stats_prefix}/resource_type/{event.type_.value}")
 
     def _log_request(self, event, spider: Spider = None) -> None:
-        """Log network requests."""
-        if not hasattr(event, 'request'):
+        if not getattr(event, 'request', None):
             return
+            
         log_args = [event.request.method.upper(), event.request.url, event.type_.value]
         referrer = _get_header_value(event.request, "referer")
+        
         if referrer:
             log_args.append(referrer)
             log_msg = "Request: <%s %s> (resource type: %s, referrer: %s)"
         else:
             log_msg = "Request: <%s %s> (resource type: %s)"
-        logger.debug(
-            log_msg,
-            *log_args,
-            extra={
-                "spider": spider,
-                "zendriver_request_url": event.request.url,
-                "zendriver_request_method": event.request.method.upper(),
-                "zendriver_resource_type": event.type_.value,
-            },
-        )
+            
+        logger.debug(log_msg, *log_args, extra={
+            "spider": spider,
+            "zendriver_request_url": event.request.url,
+            "zendriver_request_method": event.request.method.upper(),
+            "zendriver_resource_type": event.type_.value,
+        })
 
-
-    def _log_response(self, event, spider: Spider = None, request: Response = None) -> None:
-        """Log network responses."""
-        # Skip if not a ResponseReceived event
-        if not hasattr(event, 'response'):
+    def _log_response(self, event, spider: Spider = None) -> None:
+        if not getattr(event, 'response', None):
             return
+            
         if not any(fnmatch.fnmatch(event.response.url, pattern) for pattern in self.config.blocked_urls):
             log_args = [event.response.status, event.response.url]
             location = _get_header_value(event.response, "location")
-            if location:
-                log_args.append(location)
-                log_msg = "Response: <%i %s> (location: %s)"
-            else:
-                log_msg = "Response: <%i %s>"
-            logger.debug(
-                log_msg,
-                *log_args,
-                extra={
-                    "spider": spider,
-                    "zendriver_response_url": event.response.url,
-                    "zendriver_response_status": event.response.status,
-                },
-            )
-            if request.url.strip("/") == event.response.url.strip("/"):
-                self.resp_status = event.response.status
+            
+            log_msg = "Response: <%i %s> (location: %s)" if location else "Response: <%i %s>"
+            if location: log_args.append(location)
+
+            logger.debug(log_msg, *log_args, extra={
+                "spider": spider,
+                "zendriver_response_url": event.response.url,
+                "zendriver_response_status": event.response.status,
+            })
         else:
-            logger.debug(
-                "Aborted Zendriver request <%s %s>",
-                "GET",
-                event.response.url,
-                extra={
-                    "spider": spider,
-                    "zendriver_request_url": event.response.url,
-                    "zendriver_request_method": "GET",
-                },
-            )
+            logger.debug("Aborted Zendriver request <GET %s>", event.response.url)
 
-
-    def _log_blocked_request(self, event) -> None:
-        """Log blocked network requests."""
-        # Skip if not a LoadingFailed event with blocked_reason
-        if not hasattr(event, 'blocked_reason'):
-            return
-        if event.blocked_reason:
-            if event.blocked_reason.value == "inspector":
-                self.stats.inc_value("zendriver/request_count/aborted")
-
-
-    def _close_page_callback(self, target_id: str) -> None:
-        """Callback when a page is closed."""
-        if target_id in self._page_callbacks:
-            del self._page_callbacks[target_id]
-        self.semaphore.release()
+    def _log_blocked_request(self, event, *args) -> None:
+        if getattr(event, 'blocked_reason', None) and event.blocked_reason.value == "inspector":
+            self.stats.inc_value("zendriver/request_count/aborted")
