@@ -39,17 +39,29 @@ class Config:
     headless: bool
     blocked_urls: List[str]
     download_timeout: float
+    block_status_codes: List[int]
+    block_markers: List[str]
+    block_reloads: int
+    block_wait: float
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "Config":
         return cls(
             max_concurrent_pages=settings.getint(
-                "ZENDRIVER_MAX_CONCURRENT_PAGES", 
+                "ZENDRIVER_MAX_CONCURRENT_PAGES",
                 settings.getint("CONCURRENT_REQUESTS", 16)
             ),
             headless=settings.getbool("ZENDRIVER_HEADLESS", default=True),
             blocked_urls=settings.getlist("ZENDRIVER_BLOCKED_URLS", []),
-            download_timeout=settings.getfloat("DOWNLOAD_TIMEOUT", 180.0)
+            download_timeout=settings.getfloat("DOWNLOAD_TIMEOUT", 180.0),
+            block_status_codes=[
+                int(code) for code in settings.getlist("ZENDRIVER_BLOCK_STATUS_CODES", [403])
+            ],
+            block_markers=[
+                marker.lower() for marker in settings.getlist("ZENDRIVER_BLOCK_MARKERS", [])
+            ],
+            block_reloads=settings.getint("ZENDRIVER_BLOCK_RELOADS", 1),
+            block_wait=settings.getfloat("ZENDRIVER_BLOCK_WAIT", 2.0),
         )
 
 
@@ -294,6 +306,10 @@ class ScrapyZendriverDownloadHandler(HTTP11DownloadHandler):
                     except Exception as e:
                         logger.warning("Cloudflare bypass failed or timed out: %s", str(e))
 
+            # Bot protections like Akamai often block the first visit, then let a reload
+            # through once their script has set a valid cookie.
+            body_str, blocked = await self._reload_on_block(page, request, req_state, body_str)
+
             # Apply user-defined page methods (e.g., clicks, scrolls)
             if request.meta.get("zendriver_page_methods"):
                 await self._apply_page_methods(page, request, spider)
@@ -307,16 +323,58 @@ class ScrapyZendriverDownloadHandler(HTTP11DownloadHandler):
 
         body, encoding = _encode_body(headers=req_state["headers"], text=body_str)
         respcls = responsetypes.from_args(headers=req_state["headers"], url=request.url, body=body)
-        
+
         return respcls(
-            url=request.url, 
-            status=req_state["status"], 
+            url=request.url,
+            status=req_state["status"],
             headers=req_state["headers"],
-            body=body, 
-            request=request, 
-            flags=["zendriver"], 
+            body=body,
+            request=request,
+            flags=["zendriver", "blocked"] if blocked else ["zendriver"],
             encoding=encoding
         )
+
+    def _is_blocked(self, status: int, body_str: str) -> bool:
+        """A block is a blocking status code whose body has one of the markers
+        (or any blocking status code when no markers are configured)."""
+        if status not in self.config.block_status_codes:
+            return False
+        if not self.config.block_markers:
+            return True
+        body_lower = body_str.lower()
+        return any(marker in body_lower for marker in self.config.block_markers)
+
+    async def _reload_on_block(self, page: Tab, request: Request, req_state: dict, body_str: str):
+        """Reload a blocked page up to ZENDRIVER_BLOCK_RELOADS times.
+
+        Returns the latest body and whether the page is still blocked.
+        """
+        if not self._is_blocked(req_state["status"], body_str):
+            return body_str, False
+
+        self.stats.inc_value("zendriver/blocked")
+        logger.info("Blocked (%i) on %s", req_state["status"], request.url)
+
+        for attempt in range(1, self.config.block_reloads + 1):
+            # Give the protection script time to run and set its cookies.
+            await asyncio.sleep(self.config.block_wait)
+            self.stats.inc_value("zendriver/blocked/reload")
+            try:
+                # The response listener updates req_state["status"] for this URL.
+                await asyncio.wait_for(page.get(request.url), timeout=self.config.download_timeout)
+            except asyncio.TimeoutError:
+                logger.warning("Reload %i timed out on %s", attempt, request.url)
+                break
+            body_str = await page.get_content()
+
+            if not self._is_blocked(req_state["status"], body_str):
+                self.stats.inc_value("zendriver/blocked/recovered")
+                logger.info("Unblocked after %i reload(s) on %s", attempt, request.url)
+                return body_str, False
+
+        self.stats.inc_value("zendriver/blocked/gave_up")
+        logger.warning("Still blocked (%i) after reloading %s", req_state["status"], request.url)
+        return body_str, True
 
     async def _apply_page_methods(self, page: Tab, request: Request, spider: Spider) -> None:
         page_methods = request.meta.get("zendriver_page_methods") or ()

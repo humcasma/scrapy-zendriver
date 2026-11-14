@@ -354,6 +354,26 @@ ZENDRIVER_BLOCKED_URLS = [
 ]
 ```
 
+### Reload on block
+
+Some bot protections (e.g. Akamai) block the first visit, then let a reload through once their script has set a valid cookie. When a page looks blocked, the handler waits, reloads it, and checks again.
+
+A page counts as blocked when its status is in `ZENDRIVER_BLOCK_STATUS_CODES` and its body contains one of `ZENDRIVER_BLOCK_MARKERS` (case-insensitive). With no markers, every blocking status code counts.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `ZENDRIVER_BLOCK_STATUS_CODES` | `List[int]` | `[403]` | Status codes that can mean a block |
+| `ZENDRIVER_BLOCK_MARKERS` | `List[str]` | `[]` | Body text that confirms a block |
+| `ZENDRIVER_BLOCK_RELOADS` | `int` | `1` | Reloads to try (`0` disables) |
+| `ZENDRIVER_BLOCK_WAIT` | `float` | `2.0` | Seconds to wait before each reload |
+
+```python
+ZENDRIVER_BLOCK_MARKERS = ["Access Denied", "errors.edgesuite.net"]  # Akamai
+ZENDRIVER_BLOCK_RELOADS = 2
+```
+
+A response that is still blocked after the reloads gets the `"blocked"` flag (`"blocked" in response.flags`). Stats: `zendriver/blocked`, `zendriver/blocked/reload`, `zendriver/blocked/recovered`, `zendriver/blocked/gave_up`.
+
 ### `DOWNLOAD_TIMEOUT`
 Type: `float`, Default: `180.0`
 
